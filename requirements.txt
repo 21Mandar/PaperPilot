@@ -1,0 +1,21 @@
+# PaperPilot — RAG-powered Document Q&A
+# Python 3.10+ recommended
+
+# --- PDF ingestion ---
+pypdf>=4.2.0
+
+# --- Embeddings + dense vector search ---
+sentence-transformers>=3.0.0   # all-MiniLM-L6-v2
+faiss-cpu>=1.8.0
+
+# --- Generation: local open-weights LLM ---
+transformers>=4.41.0
+torch>=2.2.0
+accelerate>=0.30.0             # device placement / efficient model loading
+
+# --- Eval harness (metrics logging) ---
+numpy>=1.26.0
+pandas>=2.2.0
+
+# --- Interface ---
+streamlit>=1.35.0

@@ -1,0 +1,6 @@
+{
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "num_chunks": 57,
+  "dim": 384,
+  "metric": "inner_product (cosine on normalized vectors)"
+}

@@ -1,0 +1,14 @@
+# Keep the build context (and image) small and reproducible.
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+results/
+*.log
+.DS_Store
+.idea/
+.vscode/
+# Note: index/ and data/sample.pdf are intentionally NOT ignored — the
+# prebuilt FAISS index is baked into the image so no ingestion runs at startup.

@@ -1,0 +1,7 @@
+# Disable the source file watcher. It walks imported modules for hot-reload,
+# which triggers noisy optional-import errors deep inside transformers
+# (e.g. zoedepth -> torchvision, which we don't install or use). We don't need
+# hot-reload for this app (and definitely not in Docker/HF Spaces), so turn it
+# off. Re-run manually with "R" in the browser after editing during dev.
+[server]
+fileWatcherType = "none"

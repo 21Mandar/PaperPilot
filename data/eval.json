@@ -1,0 +1,53 @@
+{
+  "_comment": "Hand-labeled eval set for retrieval recall@k. Each question is tagged with the page number(s) in data/sample.pdf that actually contain the answer (verified against the source text). A retrieval is a 'hit' if any top-k chunk comes from a relevant page.",
+  "questions": [
+    {
+      "question": "How are radioactive materials transported?",
+      "relevant_pages": [9, 10]
+    },
+    {
+      "question": "What are the three basic types of packages used for transporting radioactive material?",
+      "relevant_pages": [10]
+    },
+    {
+      "question": "What are the techniques for disposing of radioactive waste?",
+      "relevant_pages": [8, 9]
+    },
+    {
+      "question": "What are the steps to follow when dealing with a radioactive spill?",
+      "relevant_pages": [12]
+    },
+    {
+      "question": "What is a Radiological Dispersal Device (RDD) or dirty bomb?",
+      "relevant_pages": [11]
+    },
+    {
+      "question": "What is wipe testing used to detect?",
+      "relevant_pages": [8]
+    },
+    {
+      "question": "What is the annual effective dose equivalent limit for individual members of the public?",
+      "relevant_pages": [16]
+    },
+    {
+      "question": "Which agency controls the use and distribution of radioactive materials in the United States?",
+      "relevant_pages": [14]
+    },
+    {
+      "question": "What are personnel dosimeters and what are the two general types?",
+      "relevant_pages": [7, 8]
+    },
+    {
+      "question": "By how much can the administered activity vary from the prescribed activity for therapeutic radioactive substances?",
+      "relevant_pages": [1]
+    },
+    {
+      "question": "What types of energy does a nuclear weapon give off when it explodes?",
+      "relevant_pages": [11]
+    },
+    {
+      "question": "What is the annual dose limit for the lens of the eye?",
+      "relevant_pages": [16]
+    }
+  ]
+}
