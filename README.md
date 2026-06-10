@@ -17,9 +17,7 @@ retrieved context — so every answer is traceable back to a page.
 
 **🔗 Live demo:** https://huggingface.co/spaces/21Mandar/PaperPilot
 
-<!-- Add a screenshot of the running app here, e.g.:
-![PaperPilot UI](docs/screenshot.png)
--->
+![PaperPilot UI](data/hf_ss.png)
 
 ## Features
 
