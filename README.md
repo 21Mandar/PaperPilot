@@ -1,6 +1,8 @@
 
 # 📄 PaperPilot — RAG-powered Document Q&A
 
+[![CI](https://github.com/21Mandar/PaperPilot/actions/workflows/ci.yml/badge.svg)](https://github.com/21Mandar/PaperPilot/actions/workflows/ci.yml)
+
 Ask questions about a PDF and get **grounded, page-cited answers** from a local
 open-weights LLM. PaperPilot ingests a PDF, retrieves the most relevant passages
 via dense vector search (FAISS), and generates answers constrained to that
@@ -21,6 +23,11 @@ retrieved context — so every answer is traceable back to a page.
   Transformers (no API keys, no data leaving the machine).
 - **Measured, not asserted** — a built-in eval harness reports recall@k and
   compares prompt strategies (`src/eval.py`).
+- **Agentic mode (optional)** — a Claude-driven tool-use agent (`src/agent.py`)
+  that can issue further searches for multi-part questions and double-check a
+  page before citing it, instead of a single fixed retrieve-then-generate pass.
+- **CI on every push/PR** — GitHub Actions runs the test suite and fails the
+  build if retrieval quality (recall@1) regresses (`.github/workflows/ci.yml`).
 - **One-click deploy** — Dockerized and running on Hugging Face Spaces.
 
 ## How it works
@@ -67,6 +74,33 @@ python -m src.eval --with-generation      # recall@k + zero/few-shot comparison
 streamlit run app/main.py                 # the UI
 ```
 
+## Agentic mode (optional, Claude API)
+
+`src/agent.py` is an alternate backend: instead of one fixed retrieve-then-generate
+pass, Claude drives a tool-use loop over the same FAISS index — issuing further
+searches for multi-part questions and double-checking a page's full text before
+citing it.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+python -m src.agent "How are radioactive materials transported?"
+```
+
+Or from the Streamlit UI: switch the sidebar **Backend** to "Agentic (Claude API)".
+
+- **Model:** defaults to `claude-opus-4-8`; override with the `PAPERPILOT_AGENT_MODEL`
+  env var (e.g. `claude-haiku-4-5` for a cheaper/faster option) or the sidebar's
+  "Claude model" field.
+- **Cost:** pay-per-token, no ongoing free tier. A typical query (a couple of
+  tool round-trips) runs roughly $0.02–0.03 on Opus 4.8, ~$0.003–0.005 on
+  Haiku 4.5 — cents for a full local test/demo session.
+- **Local-only by design:** this mode is not wired into the Docker image or the
+  public Hugging Face Space — it only runs where *you* export your own
+  `ANTHROPIC_API_KEY` (your terminal, or Streamlit running on your own machine).
+  That keeps the key off of any unauthenticated public endpoint. A "bring your
+  own key" field for the public demo is a possible future addition, not part of
+  this mode today.
+
 ## Run with Docker
 
 ```bash
@@ -93,15 +127,33 @@ git push space main
 Binary files (`*.pdf`, `*.index`) are tracked with Git LFS, which the Space
 requires for binary storage.
 
+## Continuous Integration
+
+`.github/workflows/ci.yml` runs on every push/PR to `main`:
+
+- **`test`** — installs dependencies and runs the `pytest` suite (`tests/`).
+- **`eval-gate`** — runs `python -m src.eval` (retrieval-only, uses the
+  committed FAISS index — no model download) and fails the build if recall@1
+  drops below 0.75 (`scripts/check_eval_regression.py`), a margin below the
+  measured 0.83 baseline. The metrics file is uploaded as a build artifact on
+  every run.
+
+Neither job loads the local Qwen model or calls the Claude API — both stay
+fast, free, and secret-free.
+
 ## Project layout
 
 ```
-src/ingest.py   load PDF → chunk → embed → build FAISS index
-src/rag.py      retrieve top-k → grounded generation (zero/few-shot)
-src/eval.py     recall@k + prompt-comparison harness → results/
-app/main.py     Streamlit UI
-data/           sample.pdf + eval.json
-index/          prebuilt FAISS index + chunk metadata
+src/ingest.py                     load PDF → chunk → embed → build FAISS index
+src/rag.py                        retrieve top-k → grounded generation (zero/few-shot)
+src/agent.py                      agentic backend (Claude tool-use loop, optional)
+src/eval.py                       recall@k + prompt-comparison harness → results/
+app/main.py                       Streamlit UI
+tests/                            pytest suite (ingest, rag, agent)
+scripts/check_eval_regression.py  CI recall@1 regression gate
+.github/workflows/ci.yml          GitHub Actions: test + eval-gate
+data/                             sample.pdf + eval.json
+index/                            prebuilt FAISS index + chunk metadata
 ```
 
 ## Limitations

@@ -19,3 +19,6 @@ pandas>=2.2.0
 
 # --- Interface ---
 streamlit>=1.35.0
+
+# --- Agentic mode (Claude API, optional — local-dev only, needs ANTHROPIC_API_KEY) ---
+anthropic>=0.69.0

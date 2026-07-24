@@ -10,6 +10,9 @@ results/
 # Claude Code local config
 .claude/
 
+# Local secrets (e.g. ANTHROPIC_API_KEY) — never commit
+.env
+
 # OS / editor
 .DS_Store
 .idea/
