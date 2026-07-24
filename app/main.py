@@ -20,13 +20,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import anthropic
 import streamlit as st
 
-from src.rag import DEFAULT_K, DEFAULT_LLM, RAGPipeline  # noqa: E402
+from src.agent import (
+    DEFAULT_AGENT_MODEL,
+    answer as agent_answer,
+    is_missing_credential_error,
+)
+from src.rag import DEFAULT_K, DEFAULT_LLM, RAGPipeline, Retriever  # noqa: E402
 
 # Allow the deployment (Docker/HF Spaces) to pick a lighter model than the local
 # default — a 1.5B model is slow on a free CPU Space, so we ship 0.5B there.
 DEFAULT_LLM = os.environ.get("PAPERPILOT_LLM", DEFAULT_LLM)
+
+# Agentic mode is local-dev only — it is not set in the Docker/HF Spaces
+# deployment, so this override only ever takes effect when you export it
+# yourself. See README for why.
+DEFAULT_AGENT_MODEL = os.environ.get("PAPERPILOT_AGENT_MODEL", DEFAULT_AGENT_MODEL)
 
 st.set_page_config(page_title="PaperPilot", page_icon="📄", layout="wide")
 
@@ -37,22 +48,42 @@ def load_pipeline(index_dir: str, model_name: str) -> RAGPipeline:
     return RAGPipeline(index_dir=index_dir, model_name=model_name)
 
 
+@st.cache_resource(show_spinner="Loading embedder and FAISS index…")
+def load_retriever(index_dir: str) -> Retriever:
+    """Load (and cache) just the retriever — no local LLM, used by agentic mode."""
+    return Retriever(index_dir)
+
+
 def sidebar() -> dict:
     st.sidebar.header("Settings")
-    model_name = st.sidebar.text_input("LLM model", value=DEFAULT_LLM)
-    mode = st.sidebar.radio(
-        "Prompt mode",
-        options=["few_shot", "zero_shot"],
-        help="few_shot adds a worked example — measurably improves citation rate.",
+    backend = st.sidebar.radio(
+        "Backend",
+        options=["Local (offline)", "Agentic (Claude API)"],
+        help=(
+            "Local runs entirely on this machine, no API key needed. Agentic "
+            "has Claude drive a multi-step tool-use search loop over the same "
+            "index — requires ANTHROPIC_API_KEY and calls the Anthropic API."
+        ),
     )
-    k = st.sidebar.slider("Chunks retrieved (k)", 1, 10, DEFAULT_K)
-    max_new_tokens = st.sidebar.slider("Max answer tokens", 64, 512, 256, step=64)
-    return {
-        "model_name": model_name,
-        "mode": mode,
-        "k": k,
-        "max_new_tokens": max_new_tokens,
-    }
+    cfg: dict = {"backend": backend}
+
+    if backend == "Local (offline)":
+        cfg["model_name"] = st.sidebar.text_input("LLM model", value=DEFAULT_LLM)
+        cfg["mode"] = st.sidebar.radio(
+            "Prompt mode",
+            options=["few_shot", "zero_shot"],
+            help="few_shot adds a worked example — measurably improves citation rate.",
+        )
+        cfg["k"] = st.sidebar.slider("Chunks retrieved (k)", 1, 10, DEFAULT_K)
+        cfg["max_new_tokens"] = st.sidebar.slider(
+            "Max answer tokens", 64, 512, 256, step=64
+        )
+    else:
+        cfg["model_name"] = st.sidebar.text_input(
+            "Claude model", value=DEFAULT_AGENT_MODEL
+        )
+
+    return cfg
 
 
 def main() -> None:
@@ -65,22 +96,27 @@ def main() -> None:
     cfg = sidebar()
     index_dir = str(ROOT / "index")
 
-    try:
-        pipeline = load_pipeline(index_dir, cfg["model_name"])
-    except FileNotFoundError:
-        st.error(
-            "No index found. Build it first:\n\n"
-            "```\npython -m src.ingest\n```"
-        )
-        st.stop()
-
     query = st.text_input(
         "Ask a question about the document",
         placeholder="e.g. How are radioactive materials transported?",
     )
     ask = st.button("Ask", type="primary")
 
-    if ask and query.strip():
+    if not (ask and query.strip()):
+        if ask:
+            st.warning("Enter a question first.")
+        return
+
+    if cfg["backend"] == "Local (offline)":
+        try:
+            pipeline = load_pipeline(index_dir, cfg["model_name"])
+        except FileNotFoundError:
+            st.error(
+                "No index found. Build it first:\n\n"
+                "```\npython -m src.ingest\n```"
+            )
+            st.stop()
+
         with st.spinner("Retrieving and generating…"):
             result = pipeline.answer(
                 query,
@@ -102,8 +138,48 @@ def main() -> None:
         for c in result.contexts:
             with st.expander(f"p. {c.page}  ·  similarity {c.score:.3f}"):
                 st.write(c.text)
-    elif ask:
-        st.warning("Enter a question first.")
+        return
+
+    # Agentic (Claude API) backend
+    try:
+        retriever = load_retriever(index_dir)
+    except FileNotFoundError:
+        st.error(
+            "No index found. Build it first:\n\n"
+            "```\npython -m src.ingest\n```"
+        )
+        st.stop()
+
+    with st.spinner("Agent is searching the document…"):
+        try:
+            result = agent_answer(query, retriever, model=cfg["model_name"])
+        except anthropic.AuthenticationError:
+            st.info(
+                "`ANTHROPIC_API_KEY` was rejected by the API (invalid or "
+                "revoked). Set a valid key in your environment and restart:\n\n"
+                "```\nexport ANTHROPIC_API_KEY=sk-ant-...\n```"
+            )
+            st.stop()
+        except TypeError as e:
+            if not is_missing_credential_error(e):
+                raise
+            st.info(
+                "No `ANTHROPIC_API_KEY` found. This mode calls the Claude "
+                "API — set a key in your environment and restart:\n\n"
+                "```\nexport ANTHROPIC_API_KEY=sk-ant-...\n```"
+            )
+            st.stop()
+
+    st.subheader("Answer")
+    st.write(result.answer)
+    st.caption(f"Model: {result.model}")
+
+    st.subheader("Tool calls")
+    if result.tool_calls:
+        for call in result.tool_calls:
+            st.write(f"`{call['name']}`  →  `{call['input']}`")
+    else:
+        st.write("None — the agent answered directly.")
 
 
 if __name__ == "__main__":

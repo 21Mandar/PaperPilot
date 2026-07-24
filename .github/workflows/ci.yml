@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true  # index/faiss.index and data/sample.pdf are LFS-tracked
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run tests
+        run: pytest -q
+
+  eval-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true  # index/faiss.index and data/sample.pdf are LFS-tracked
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run retrieval evaluation
+        # Retrieval-only (no --with-generation): fast, no local LLM download,
+        # uses the FAISS index already committed under index/.
+        run: python -m src.eval
+
+      - name: Gate on recall@1 regression
+        run: python scripts/check_eval_regression.py
+
+      - name: Upload eval metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-metrics
+          path: results/eval_metrics.json
