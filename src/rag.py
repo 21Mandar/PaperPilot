@@ -45,9 +45,14 @@ SYSTEM_PROMPT = (
     "(p. 12). Be concise."
 )
 
-# One worked exemplar for the few-shot variant. It demonstrates the desired
-# behaviour: ground the answer in context, cite the page, and abstain when the
-# context doesn't cover the question.
+# Appended to the question in few-shot mode only (zero-shot stays the plain
+# baseline), including the exemplars so the format is consistent.
+CITE_REMINDER = "\n\nEnd your answer with the page citation, like (p. 12)."
+
+# Worked exemplars for the few-shot variant. They demonstrate the desired
+# behaviour: ground the answer in the context and end it with a page citation.
+# (Abstaining when the context is insufficient is instructed in SYSTEM_PROMPT,
+# not demonstrated here.)
 FEW_SHOT_EXAMPLES = [
     {
         "role": "user",
@@ -55,12 +60,33 @@ FEW_SHOT_EXAMPLES = [
             "Context:\n"
             "[p. 3] A stack is a last-in, first-out (LIFO) structure. The "
             "most recently inserted element is removed first.\n\n"
-            "Question: What ordering does a stack use?"
+            f"Question: What ordering does a stack use?{CITE_REMINDER}"
         ),
     },
     {
         "role": "assistant",
         "content": "A stack uses last-in, first-out (LIFO) ordering (p. 3).",
+    },
+    # A list-style answer: the citation still goes at the end. Without this the
+    # small model dropped the citation on multi-item answers.
+    {
+        "role": "user",
+        "content": (
+            "Context:\n"
+            "[p. 5] A queue supports two main operations: enqueue adds an "
+            "element at the back, and dequeue removes the element at the "
+            "front.\n\n"
+            f"Question: What operations does a queue support?{CITE_REMINDER}"
+        ),
+    },
+    {
+        "role": "assistant",
+        "content": (
+            "A queue supports two operations:\n"
+            "- Enqueue: adds an element at the back.\n"
+            "- Dequeue: removes the element at the front.\n"
+            "(p. 5)"
+        ),
     },
 ]
 
@@ -142,6 +168,8 @@ def build_messages(
         messages.extend(FEW_SHOT_EXAMPLES)
 
     user = f"Context:\n{format_context(contexts)}\n\nQuestion: {query}"
+    if mode == "few_shot":
+        user += CITE_REMINDER
     messages.append({"role": "user", "content": user})
     return messages
 
