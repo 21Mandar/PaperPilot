@@ -38,8 +38,41 @@ from src.rag import (
 
 DEFAULT_EVAL_SET = "data/eval.json"
 DEFAULT_RESULTS_DIR = "results"
+PROMPT_EVAL_FILE = "prompt_eval.json"
 DEFAULT_KS = [1, 3, 5]
 CITATION_RE = re.compile(r"\(p\.\s*\d+", re.IGNORECASE)
+CITED_PAGES_RE = re.compile(r"\(pp?\.\s*([^)]*)\)", re.IGNORECASE)
+
+
+def extract_cited_pages(answer: str) -> list[int]:
+    """Page numbers an answer cites, e.g. "(p. 9)" or "(p. 9, p. 10)"."""
+    pages: list[int] = []
+    for group in CITED_PAGES_RE.findall(answer):
+        pages.extend(int(n) for n in re.findall(r"\d+", group))
+    return pages
+
+
+def score_citations(
+    answer: str, retrieved_pages: list[int], relevant_pages: list[int]
+) -> dict:
+    """Score one answer's citations.
+
+    ``cited``     the answer cites at least one page (citation rate).
+    ``accurate``  it cites at least one page and every cited page was in the
+                  retrieved context, i.e. no invented page numbers
+                  (citation accuracy).
+    ``gold``      at least one cited page is a labeled relevant page.
+    """
+    cited_pages = extract_cited_pages(answer)
+    cited = bool(cited_pages)
+    accurate = cited and all(p in set(retrieved_pages) for p in cited_pages)
+    gold = any(p in set(relevant_pages) for p in cited_pages)
+    return {
+        "cited": cited,
+        "accurate": accurate,
+        "gold": gold,
+        "cited_pages": cited_pages,
+    }
 
 
 def load_eval_set(path: str | Path) -> list[dict]:
@@ -99,26 +132,33 @@ def evaluate_prompts(
     eval_set: list[dict],
     k: int,
 ) -> dict:
-    """Compare zero-shot vs few-shot: citation rate + generation latency."""
+    """Compare zero-shot vs few-shot: citation rate/accuracy + generation latency."""
     modes = ["zero_shot", "few_shot"]
     summary: dict = {}
     rows: list[dict] = []
 
     for mode in modes:
-        cited = 0
+        cited = accurate = gold = 0
         gen_latencies: list[float] = []
         for item in eval_set:
             contexts, _ = retriever.search(item["question"], k=k)
             messages = build_messages(item["question"], contexts, mode=mode)
             answer, g_lat = generator.generate(messages)
             gen_latencies.append(g_lat)
-            has_citation = bool(CITATION_RE.search(answer))
-            cited += int(has_citation)
+            score = score_citations(
+                answer, [c.page for c in contexts], item["relevant_pages"]
+            )
+            cited += int(score["cited"])
+            accurate += int(score["accurate"])
+            gold += int(score["gold"])
             rows.append(
                 {
                     "mode": mode,
                     "question": item["question"],
-                    "cited_page": has_citation,
+                    "cited_page": score["cited"],
+                    "citation_accurate": score["accurate"],
+                    "cites_relevant_page": score["gold"],
+                    "cited_pages": score["cited_pages"],
                     "gen_latency_s": round(g_lat, 2),
                     "answer": answer,
                 }
@@ -126,6 +166,8 @@ def evaluate_prompts(
         n = len(eval_set)
         summary[mode] = {
             "citation_rate": cited / n,
+            "citation_accuracy": accurate / n,
+            "gold_page_citation_rate": gold / n,
             "gen_latency_s": {
                 "mean": statistics.mean(gen_latencies),
                 "median": statistics.median(gen_latencies),
@@ -134,12 +176,23 @@ def evaluate_prompts(
     return {"summary": summary, "per_question": rows}
 
 
-def save_results(out_dir: Path, retrieval: dict, prompts: dict | None) -> None:
+def save_results(
+    out_dir: Path,
+    retrieval: dict,
+    prompts: dict | None,
+    run_info: dict | None = None,
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {"retrieval": retrieval}
     if prompts is not None:
         payload["prompts"] = prompts
     (out_dir / "eval_metrics.json").write_text(json.dumps(payload, indent=2))
+
+    # Generation results live in their own committed file: the retrieval-only
+    # run (CI) rewrites eval_metrics.json and would otherwise drop them.
+    if prompts is not None:
+        record = {**(run_info or {}), **prompts}
+        (out_dir / PROMPT_EVAL_FILE).write_text(json.dumps(record, indent=2))
 
 
 def print_report(retrieval: dict, prompts: dict | None) -> None:
@@ -161,6 +214,7 @@ def print_report(retrieval: dict, prompts: dict | None) -> None:
                 {
                     "mode": mode,
                     "citation_rate": s["citation_rate"],
+                    "citation_accuracy": s["citation_accuracy"],
                     "gen_latency_s (mean)": round(s["gen_latency_s"]["mean"], 2),
                 }
                 for mode, s in prompts["summary"].items()
@@ -195,7 +249,13 @@ def main() -> None:
         generator = Generator(args.model)
         prompts = evaluate_prompts(retriever, generator, eval_set, k=args.k)
 
-    save_results(Path(args.out), retrieval, prompts)
+    run_info = {
+        "model": args.model,
+        "k": args.k,
+        "num_questions": len(eval_set),
+        "decoding": "greedy",
+    }
+    save_results(Path(args.out), retrieval, prompts, run_info=run_info)
     print_report(retrieval, prompts)
     print(f"\nSaved metrics to {args.out}/eval_metrics.json")
 

@@ -27,6 +27,9 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+      - name: Smoke checks (citation scorer, agent cap, FastAPI)
+        run: python scripts/smoke_checks.py
+
   eval-gate:
     runs-on: ubuntu-latest
     steps:
