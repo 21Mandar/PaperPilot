@@ -19,6 +19,9 @@ pandas>=2.2.0
 
 # --- Interface ---
 streamlit>=1.35.0
+fastapi>=0.110.0
+uvicorn>=0.29.0
+httpx>=0.27.0                  # FastAPI TestClient (smoke checks)
 
 # --- Agentic mode (Claude API, optional — local-dev only, needs ANTHROPIC_API_KEY) ---
 anthropic>=0.69.0

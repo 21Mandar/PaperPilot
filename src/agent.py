@@ -49,7 +49,14 @@ class AgentResult:
     answer: str
     tool_calls: list[dict]
     model: str
+    truncated: bool = False
 
+
+TRUNCATED_NOTICE = (
+    "The agent stopped before finishing (it hit the "
+    f"{DEFAULT_MAX_ITERATIONS}-step search limit or the token limit), so there "
+    "is no complete answer. Try a narrower question."
+)
 
 NO_CREDENTIAL_HELP = (
     "No Claude API credentials found. This mode calls the Anthropic API — set "
@@ -117,6 +124,25 @@ def build_tools(retriever: Retriever) -> list:
     return [search_document, get_page]
 
 
+def _final_answer(last_message) -> tuple[str, bool]:
+    """Extract the agent's answer text and whether the run was cut off.
+
+    The loop ends cleanly when Claude replies with text and no further tool
+    call. If the iteration cap (or max_tokens) stops it mid-search, the last
+    message is a tool call (or clipped) and there is no usable answer — report
+    that instead of returning an empty string.
+    """
+    if last_message is None:
+        return TRUNCATED_NOTICE, True
+    text = "".join(
+        block.text for block in last_message.content if block.type == "text"
+    ).strip()
+    cut_off = getattr(last_message, "stop_reason", None) in {"tool_use", "max_tokens"}
+    if not text or cut_off:
+        return text or TRUNCATED_NOTICE, True
+    return text, False
+
+
 def answer(
     query: str,
     retriever: Retriever,
@@ -145,13 +171,10 @@ def answer(
             if block.type == "tool_use":
                 tool_calls.append({"name": block.name, "input": block.input})
 
-    final_text = ""
-    if last_message is not None:
-        final_text = "".join(
-            block.text for block in last_message.content if block.type == "text"
-        ).strip()
-
-    return AgentResult(answer=final_text, tool_calls=tool_calls, model=model)
+    final_text, truncated = _final_answer(last_message)
+    return AgentResult(
+        answer=final_text, tool_calls=tool_calls, model=model, truncated=truncated
+    )
 
 
 def parse_args() -> argparse.Namespace:
