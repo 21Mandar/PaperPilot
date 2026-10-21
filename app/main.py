@@ -171,6 +171,8 @@ def main() -> None:
             st.stop()
 
     st.subheader("Answer")
+    if result.truncated:
+        st.warning("The agent stopped early; this answer may be incomplete.")
     st.write(result.answer)
     st.caption(f"Model: {result.model}")
 
